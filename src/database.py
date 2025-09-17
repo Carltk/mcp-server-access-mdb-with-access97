@@ -57,22 +57,37 @@ def ListConnections(ctx: Context) -> list[dict[str, t.Any]]:
 
 
 def CreateDatabase(targetPath: str, ctx: Context) -> str:
-    """Create a new MS Access database by copying empty.mdb to the specified path."""
-
-    # Ensure the empty template exists
-    emptyTemplate = Path(__file__).parent.parent / "empty.mdb"
-    if not emptyTemplate.exists():
-        raise FastMCPError(f"Template database not found: {emptyTemplate}")
+    """Create a new empty database, detect type based on extension.
+    Supported extensions: .db, .sqlite, .sqlite3, .mdb, .accdb.
+    """
 
     # Check if the target path is valid and does not already exist
     target = Path(targetPath)
     if target.exists():
         raise FastMCPError(f"Target file already exists: {target}")
 
-    # Creates the database by copying the template
     try:
-        shutil.copy(str(emptyTemplate), str(target))
-        return f"Database created at {target}"
+        # For SQLite databases, create an empty database file
+        if targetPath.endswith(".db") or targetPath.endswith(".sqlite") or targetPath.endswith(".sqlite3"):
+            import sqlite3
+            sqlite3.connect(targetPath)
+            return f"SQLite database created at {target}"
+        
+        # For MS Access databases, copy the template
+        elif targetPath.endswith(".mdb") or targetPath.endswith(".accdb"):
+
+            # Ensure the empty template exists
+            emptyTemplate = Path(__file__).parent.parent / "empty.mdb"
+            if not emptyTemplate.exists():
+                raise FastMCPError(f"MS Access empty template database not found: {emptyTemplate}")
+            
+            shutil.copy(str(emptyTemplate), str(target))
+            return f"MS Access database created at {target}"
+        
+        else:
+            raise FastMCPError(f"Unsupported database file extension: {targetPath}. "
+                "Supported extensions: .db, .sqlite, .sqlite3, .mdb, .accdb")
+            
     except Exception as e:
         raise FastMCPError(f"Failed to create database: {e}")
 
@@ -86,8 +101,10 @@ def Connect(key: str, ctx: Context, databasePath: str = "", readNotes: bool = Fa
 
     # Check if the key already exists in the engines dictionary
     connections = getattr(ctx.fastmcp, "connections")
-    if key in connections:
-        raise FastMCPError(f"Database connection with key '{key}' already exists.")
+    existing = connections.get(key)
+    if existing:
+        raise FastMCPError(f"Database connection with key '{key}' already exists."
+            f"Existing connection: {existing.path}")
 
     # If no database path is specified, create an in-memory database
     # This allows us to load CSV data without writing to disk
@@ -98,6 +115,10 @@ def Connect(key: str, ctx: Context, databasePath: str = "", readNotes: bool = Fa
     elif databasePath.endswith(".mdb") or databasePath.endswith(".accdb"):
         connectionString = f"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={databasePath};"
         connectionUrl = URL.create("access+pyodbc", query={"odbc_connect": connectionString})
+    
+    # For SQLite files, use sqlite:/// connection string
+    elif databasePath.endswith(".db") or databasePath.endswith(".sqlite") or databasePath.endswith(".sqlite3"):
+        connectionUrl = f"sqlite:///{databasePath}"
     
     # Handle other unknown file types
     else: raise FastMCPError(f"Unsupported database file extension: {databasePath}")

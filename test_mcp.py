@@ -43,8 +43,10 @@ from test_tools import *
 
 
 # Define paths for the test files
-dbPath1  = str(Path("test.mdb").absolute())   # file database
-dbPath2  = ""                                 # in-memory database
+dbPathAccess  = str(Path("test.mdb").absolute())   # MS Access database
+dbPathSQLite  = str(Path("test.db").absolute())    # SQLite database
+dbPathMemory  = ""                                 # in-memory database
+
 csvPath1 = str(Path("test1.csv").absolute())
 csvPath2 = str(Path("test2.csv").absolute())
 
@@ -57,8 +59,14 @@ async def RunTests() -> None:
 
     # create a client to connect to the MCP server
     async with Client(mcp) as mcpClient:
-        await PerformTest1(mcpClient, dbPath1, csvPath1, "test1")
-        await PerformTest2(mcpClient, dbPath1, dbPath2, csvPath1, csvPath2, key1="test1", key2="test2")
+
+        # single database
+        await PerformTest1(mcpClient, dbPathAccess, csvPath1, "test_ACCESS")
+        await PerformTest1(mcpClient, dbPathSQLite, csvPath1, "test_SQLITE")
+
+        # multiple databases, one in-memory
+        await PerformTest2(mcpClient, dbPathAccess, dbPathMemory,
+            csvPath1, csvPath2, key1="test_ACCESS", key2="test_MEMORY")
 
 
 async def PerformTest1(mcpClient: Client, dbPath: str, csvPath: str, key: str) -> None:

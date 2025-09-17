@@ -1,7 +1,7 @@
 [project]
 name = "mcp-server-access-mdb"
 version = "0.1.0"
-description = "MCP server for Microsoft Access databases (.mdb)"
+description = "MCP server for Microsoft Access and SQLite 3 databases"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

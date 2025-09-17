@@ -1,6 +1,6 @@
-# Microsoft Access Database MCP Server
+# Databases MCP Server (Access and SQLite 3)
 
-A simple MCP server to let AI interact with Microsoft Access databases.
+A simple MCP server to let AI interact with Microsoft Access and SQLite 3 databases.
 Supports import/export with CSV and Excel files, and store human-readable notes about files.
 
 **WARNING**: This server has full access to databases, so it can read and modify any data in it. **Use with caution** to avoid data loss!
@@ -32,6 +32,13 @@ To use this MCP server with Claude Desktop (or any other MCP host), clone the re
 Dev note: to use with uvx, we need to create a package and publish it to PyPI.
 
 
+## Supported Database Types
+
+- **Microsoft Access**: `.mdb` and `.accdb` files
+- **SQLite 3**: `.db`, `.sqlite`, and `.sqlite3` files
+- **In-memory SQLite**: When no database path is specified
+
+
 ## Available Tools
 
 Database management:
@@ -51,7 +58,7 @@ Notes management:
 - `read_notes`: Reads notes from the specified file, or discovers notes in the specified directory.
 - `write_notes`: Writes notes to the specified file, or linked to the specified database.
 
-Note: Excel import/export is not implemented, use haris-musa/excel-mcp-server instead.
+Note: Excel export is not implemented, use haris-musa/excel-mcp-server instead.
 The main problem is tracking the index of the rows and columns in the Excel file, to correctly import/export data to the same cells, and/or insert new rows/columns.
 In addition, merged cells complicate the process, it would be too complex to implement.
 
