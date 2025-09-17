@@ -9,25 +9,14 @@ The script:
 - Deletes the table
 """
 
+import shutil
 import pandas as pd
 import sqlalchemy as sa
 from pathlib import Path
 from sqlalchemy.engine import URL
 
 
-# Create connection string for MS Access
-dbPath = Path("empty.mdb").absolute()
-connection_string = f"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={dbPath};"
-connection_url = URL.create("access+pyodbc", query={"odbc_connect": connection_string})
-
-
-# Create engine to connect to the database
-print("Creating engine")
-engine = sa.create_engine(connection_url)
-print("Engine created")
-
-
-def ExecuteQuery(query: str) -> pd.DataFrame:
+def ExecuteQuery(engine: sa.Engine, query: str) -> pd.DataFrame:
     """Execute a query and return the result as a pandas dataframe"""
 
     with engine.begin() as conn:
@@ -38,7 +27,7 @@ def ExecuteQuery(query: str) -> pd.DataFrame:
             exit(1)
 
 
-def ExecuteUpdate(query: str) -> None:
+def ExecuteUpdate(engine: sa.Engine, query: str) -> None:
     """Execute an update query"""
 
     with engine.begin() as conn:
@@ -49,20 +38,48 @@ def ExecuteUpdate(query: str) -> None:
             exit(1)
 
 
-# Create a new table in the database
-ExecuteUpdate("CREATE TABLE TestTable (ID INT, Name VARCHAR(255), Age INT)")
-print("Created TestTable")
+def SampleOperations(engine: sa.Engine) -> None:
+    """Perform sample operations on the database"""
 
-# add sample data to table TestTable
-ExecuteUpdate("INSERT INTO TestTable (ID, Name, Age) VALUES (1, 'John', 30)")
-ExecuteUpdate("INSERT INTO TestTable (ID, Name, Age) VALUES (2, 'Jane', 25)")
-print("Inserted data into TestTable")
+    # Create a new table in the database
+    ExecuteUpdate(engine, "CREATE TABLE TestTable (ID INT, Name VARCHAR(255), Age INT)")
+    print("Created TestTable")
 
-# query the table
-df = ExecuteQuery("SELECT * FROM TestTable")
-print("TestTable contents:")
-print(df)
+    # add sample data to table TestTable
+    ExecuteUpdate(engine, "INSERT INTO TestTable (ID, Name, Age) VALUES (1, 'John', 30)")
+    ExecuteUpdate(engine, "INSERT INTO TestTable (ID, Name, Age) VALUES (2, 'Jane', 25)")
+    print("Inserted data into TestTable")
 
-# delete the table
-ExecuteUpdate("DROP TABLE TestTable")
-print("Deleted TestTable")
+    # query the table
+    df = ExecuteQuery(engine, "SELECT * FROM TestTable")
+    print("TestTable contents:")
+    print(df)
+
+    # delete the table
+    ExecuteUpdate(engine, "DROP TABLE TestTable")
+    print("Deleted TestTable")
+
+
+if __name__ == "__main__":
+
+    # creates test database
+    template = Path("empty.mdb").absolute()
+    dbPath = template.with_name("test.mdb").absolute()
+    shutil.copy(template, dbPath)
+    print(f"Test database created at")
+
+    # create connection string for MS Access
+    connection_string = f"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={dbPath};"
+    connection_url = URL.create("access+pyodbc", query={"odbc_connect": connection_string})
+
+    # create engine to connect to the database
+    engine = sa.create_engine(connection_url)
+    print("Engine created")
+
+    # perform sample operations
+    SampleOperations(engine)
+
+    # delete the database
+    engine.dispose()
+    dbPath.unlink()
+    print(f"Test database deleted")
