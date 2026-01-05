@@ -35,8 +35,25 @@ Dev note: to use with uvx, we need to create a package and publish it to PyPI.
 ## Supported Database Types
 
 - **Microsoft Access**: `.mdb` and `.accdb` files
+  - Supports both modern Access formats (via ACE ODBC driver)
+  - Supports legacy Access 97 databases (via access-parser library - **read-only**)
 - **SQLite 3**: `.db`, `.sqlite`, and `.sqlite3` files
 - **In-memory SQLite**: When no database path is specified
+
+### Access 97 Support
+
+Access 97 (.mdb) databases are supported in **read-only mode** using the `access-parser` library. This allows:
+
+- Reading data from Access 97 databases without needing ODBC drivers
+- Basic SELECT queries to retrieve data
+- No external dependencies (pure Python implementation)
+
+**Limitations:**
+- Access 97 databases are read-only (no INSERT, UPDATE, DELETE operations)
+- Only basic SELECT queries are supported (no complex JOINs or subqueries)
+- Parameterized queries are not supported for Access 97 databases
+
+The server automatically detects Access 97 format and falls back to `access-parser` when needed.
 
 
 ## Available Tools

@@ -5,6 +5,7 @@ description = "MCP server for Microsoft Access and SQLite 3 databases"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "access-parser>=0.0.6",
     "chardet>=5.2.0",
     "fastmcp>=2.8.1",
     "openpyxl>=3.1.5",

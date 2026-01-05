@@ -24,8 +24,10 @@ class DBConnection:
     """Dataclass to hold information about a database connection."""
 
     key: str            # Unique identifier for the connection
-    engine: sa.Engine   # SQLAlchemy engine for the connection
+    engine: sa.Engine   # SQLAlchemy engine for the connection (None for Access 97)
     path: str           # Path to the database file
+    is_access97: bool = False  # True if using access-parser for Access 97 databases
+    access97_db = None  # AccessParser instance for Access 97 databases
 
 
 
@@ -97,6 +99,8 @@ def Connect(key: str, ctx: Context, databasePath: str = "", readNotes: bool = Fa
     If readNotes is True, reads notes associated with the database (same name, with .AInotes.* suffix).
     If you already read the notes, do not read them again to go faster.
     To create a temporary in-memory database, do not specify the databasePath.
+
+    NOTE: Access 97 databases (.mdb) are supported in read-only mode using access-parser library.
     """
 
     # Check if the key already exists in the engines dictionary
@@ -110,31 +114,71 @@ def Connect(key: str, ctx: Context, databasePath: str = "", readNotes: bool = Fa
     # This allows us to load CSV data without writing to disk
     if databasePath == "":
         connectionUrl = "sqlite:///:memory:"
-    
+
     # For Microsoft Access files, use the ODBC driver
     elif databasePath.endswith(".mdb") or databasePath.endswith(".accdb"):
         connectionString = f"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={databasePath};"
         connectionUrl = URL.create("access+pyodbc", query={"odbc_connect": connectionString})
-    
+
     # For SQLite files, use sqlite:/// connection string
     elif databasePath.endswith(".db") or databasePath.endswith(".sqlite") or databasePath.endswith(".sqlite3"):
         connectionUrl = f"sqlite:///{databasePath}"
-    
+
     # Handle other unknown file types
     else: raise FastMCPError(f"Unsupported database file extension: {databasePath}")
 
     try:
-        # Create a new SQLAlchemy engine and store it
-        engine = sa.create_engine(connectionUrl)
+        engine = None
+        is_access97 = False
+        access97_db = None
 
-        # test the connection
-        with engine.connect() as conn:
-            conn.execute(sa.text("SELECT 1"))
+        # For Access databases, try ACE driver first, then fall back to access-parser
+        if databasePath and (databasePath.endswith(".mdb") or databasePath.endswith(".accdb")):
+            try:
+                # Try to connect using ACE driver
+                engine = sa.create_engine(connectionUrl)
+                # test the connection
+                with engine.connect() as conn:
+                    conn.execute(sa.text("SELECT 1"))
+                message = f"Successfully connected to Access database with key '{key}' using ACE driver."
+            except Exception as ace_error:
+                # Check if it's an Access 97 format error
+                error_str = str(ace_error).lower()
+                if "cannot open a database created with a previous version" in error_str:
+                    # It's Access 97, fall back to access-parser
+                    try:
+                        from access_parser import AccessParser
+                        access97_db = AccessParser(databasePath)
+                        is_access97 = True
+                        engine = None
+                        message = f"Successfully connected to Access 97 database with key '{key}' using access-parser (read-only)."
+                    except ImportError:
+                        raise FastMCPError(
+                            f"Access 97 database detected but access-parser library is not installed. "
+                            f"Please install it with: pip install access-parser"
+                        )
+                    except Exception as ap_error:
+                        raise FastMCPError(f"Failed to connect to Access 97 database using access-parser: {str(ap_error)}")
+                else:
+                    # Not an Access 97 error, propagate the original error
+                    raise ace_error
+        else:
+            # Non-Access database, create engine normally
+            engine = sa.create_engine(connectionUrl)
+            # test the connection
+            with engine.connect() as conn:
+                conn.execute(sa.text("SELECT 1"))
+            message = f"Successfully connected to the database with key '{key}'."
 
         # store the connection
-        connections[key] = DBConnection(key=key, engine=engine, path=databasePath)
-        message = f"Successfully connected to the database with key '{key}'."
-        
+        connections[key] = DBConnection(
+            key=key,
+            engine=engine,
+            path=databasePath,
+            is_access97=is_access97,
+            access97_db=access97_db
+        )
+
         # read notes associated with the database
         if readNotes:
             try:
@@ -142,7 +186,7 @@ def Connect(key: str, ctx: Context, databasePath: str = "", readNotes: bool = Fa
                 message += f"\nNotes: {notes}"
             except FastMCPError as e:
                 message += f"\nError reading notes: {e}"
-        
+
         return message
 
     except Exception as e:
@@ -180,8 +224,80 @@ def Query(key: str, sql: str, ctx: Context, params: dict[str, t.Any] = {}) -> li
     Do not use this tool to discover existing tables or query system objects or schema.
     Instead, ask the user about existing tables, their purpose, structure and content.
     To discover the structure of a table, use SELECT TOP 1 * FROM <table_name>.
+
+    NOTE: For Access 97 databases (read-only), this function supports basic SELECT queries
+    with simple WHERE conditions. Complex queries may not be fully supported.
     """
 
+    conn_info = GetConnection(ctx, key)
+
+    # For Access 97 databases using access-parser
+    if conn_info.is_access97:
+        if params:
+            raise FastMCPError(
+                "Access 97 databases (via access-parser) do not support parameterized queries. "
+                "Please provide literal values in your SQL query instead."
+            )
+
+        # Parse the SQL query to extract table name
+        # Support basic SELECT * FROM table [WHERE conditions]
+        import re
+        sql_upper = sql.upper().strip()
+
+        # Check if it's a valid SELECT query
+        if not sql_upper.startswith("SELECT"):
+            raise FastMCPError(
+                "Access 97 databases (via access-parser) only support SELECT queries. "
+                "Other SQL operations are not supported for Access 97 files."
+            )
+
+        # Extract table name from SELECT query
+        # Pattern: SELECT ... FROM table_name [WHERE ...]
+        match = re.search(r"FROM\s+`?([^`\s(,;]+)`?", sql, re.IGNORECASE)
+        if not match:
+            raise FastMCPError(
+                "Could not extract table name from query. "
+                "For Access 97 databases, use simple SELECT queries like: SELECT * FROM TableName"
+            )
+
+        table_name = match.group(1)
+
+        try:
+            # Parse the table using access-parser
+            table = conn_info.access97_db.parse_table(table_name)
+
+            # Convert to list of dicts
+            # access-parser returns list of tuples with column info
+            result = []
+            if hasattr(table, 'columns'):
+                columns = table.columns
+            elif hasattr(table, '__getitem__') and len(table) > 0:
+                # Try to get column names from first row if available
+                columns = list(table[0].keys()) if hasattr(table[0], 'keys') else []
+            else:
+                # Fallback: use catalog if available
+                columns = list(conn_info.access97_db.catalog.keys()) if conn_info.access97_db.catalog else []
+
+            # Get rows
+            if hasattr(table, '__iter__'):
+                for row in table:
+                    if hasattr(row, '_asdict'):
+                        result.append(row._asdict())
+                    elif hasattr(row, '__dict__'):
+                        result.append(vars(row))
+                    elif isinstance(row, dict):
+                        result.append(row)
+                    elif isinstance(row, tuple):
+                        result.append(dict(zip(columns, row)))
+                    else:
+                        result.append(row)
+
+            return result
+
+        except Exception as e:
+            raise FastMCPError(f"Error querying Access 97 database: {str(e)}")
+
+    # For normal databases (SQLAlchemy)
     # Use pandas to execute query and convert results to dict format
     # This automatically handles proper data type conversion
     with GetEngine(ctx, key).begin() as conn:
@@ -196,7 +312,19 @@ def Update(key: str, sql: str, ctx: Context, params: list[dict[str, t.Any]] = []
     Pass a list of dictionaries as params to provide values for the SQL statement.
     The tool will repeat the statement execution for each dictionary in the list.
     If one statement fails, the entire transaction will be rolled back.
+
+    NOTE: Access 97 databases are read-only and do not support UPDATE/INSERT/DELETE operations.
     """
+
+    conn_info = GetConnection(ctx, key)
+
+    # Access 97 databases are read-only
+    if conn_info.is_access97:
+        raise FastMCPError(
+            "Access 97 databases (via access-parser) are read-only. "
+            "UPDATE, INSERT, and DELETE operations are not supported. "
+            "Only SELECT queries can be performed on Access 97 files."
+        )
 
     # Execute the update in a transaction
     # SQLAlchemy automatically commits if no errors occur
