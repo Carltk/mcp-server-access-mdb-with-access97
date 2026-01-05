@@ -21,6 +21,7 @@ To use this MCP server with Claude Desktop (or any other MCP host), clone the re
         "--with", "pandas",
         "--with", "sqlalchemy-access",
         "--with", "openpyxl",
+        "--with", "access-parser",
         "fastmcp", "run",
         "path/to/repo/server.py"
       ],
@@ -35,8 +36,56 @@ Dev note: to use with uvx, we need to create a package and publish it to PyPI.
 ## Supported Database Types
 
 - **Microsoft Access**: `.mdb` and `.accdb` files
+  - Includes support for **Access97** databases using the `access-parser` library as a fallback
 - **SQLite 3**: `.db`, `.sqlite`, and `.sqlite3` files
 - **In-memory SQLite**: When no database path is specified
+
+
+## Access97 Database Support
+
+This server now supports legacy Access97 (.mdb) databases through a multi-tier fallback mechanism:
+
+1. **Modern ODBC Driver** (default): Attempts to connect using modern Microsoft Access drivers
+2. **Legacy ODBC Driver**: Falls back to older drivers if modern ones fail
+3. **access-parser Library**: As a final fallback for Access97 databases that are incompatible with ODBC drivers
+
+### Access97 Limitations
+
+When connecting to Access97 databases using the `access-parser` library:
+
+- **Read-only access**: Cannot insert, update, or delete data (access-parser is read-only)
+- **Simple queries only**: Only supports `SELECT * FROM table` queries
+  - No WHERE clauses, JOINs, or complex SQL statements
+  - To filter data, fetch the entire table and filter in the application layer
+- **Warning messages**: You may see parsing warnings for system tables (MSysObjects), which can be safely ignored
+
+### Using Access97 Databases
+
+To work with an Access97 database:
+```json
+{
+  "mcpServers": {
+    "access-mdb": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with", "fastmcp",
+        "--with", "pandas",
+        "--with", "sqlalchemy-access",
+        "--with", "openpyxl",
+        "--with", "access-parser",
+        "fastmcp", "run",
+        "path/to/repo/server.py"
+      ],
+    }
+  }
+}
+```
+
+Example workflow:
+1. Connect: `"connect", {"key": "mydb", "databasePath": "/path/to/database97.mdb"}`
+2. Query: `"query", {"key": "mydb", "sql": "SELECT * FROM TableName"}`
+3. Disconnect: `"disconnect", {"key": "mydb"}`
 
 
 ## Available Tools
